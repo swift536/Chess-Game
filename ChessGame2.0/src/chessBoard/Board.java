@@ -1,6 +1,7 @@
 package chessBoard;
 
 import java.util.Collections;
+import java.util.Vector;
 
 import custom_rectangle.CustomRectangle;
 import javafx.application.Application;
@@ -56,6 +57,7 @@ public class Board extends Application {
 	private Position whiteKingPosition;
 	private Position blackKingPosition;
 	private Position selectedPosition;
+	private Vector<Position> checkBlockPositions;
 	boolean selected;
 	boolean checked;
 	Team turn;
@@ -132,14 +134,33 @@ public class Board extends Application {
 			} else if (e.getButton() == MouseButton.PRIMARY) {
 				int x = (int) ((Rectangle) e.getSource()).getX();
 				int y = (int) ((Rectangle) e.getSource()).getY();
+				/*//If King is in check
+					if (checked) {
+						//White turn
+						if (turn == Team.White) {
+							//If the white king is not selected
+							if (!(selectedPosition.getX()==whiteKingPosition.getX() && selectedPosition.getY()==whiteKingPosition.getY())) {
+								//Then check for blocking check
+								//if not blocking check then consume the event (not valid move)
+							}
+						//Black turn
+						} else {
+							//If the black king is not selected
+							if (!(selectedPosition.getX()==whiteKingPosition.getX() && selectedPosition.getY()==whiteKingPosition.getY())) {
+								//Then check for blocking check
+								//if not blocking check then consume the event (not valid move)
+							}
+						}
+					}*/
 					if (selected && canMove(x,y)) {
 						move(x,y);
 						//Check if moved piece has placed king in check
 						if (kingChecked(x,y)) {
 							checked = true;
-							if (turn == Team.White && ((King) logicBoard[blackKingPosition.getX()][blackKingPosition.getY()]).isCheckMated(logicBoard)) {
+							checkBlockPositions = getCheckBlockPositions(x,y);
+							if (turn == Team.White && ((King) logicBoard[blackKingPosition.getX()][blackKingPosition.getY()]).isCheckMated(x,y,logicBoard)) {
 								endGame(Team.White);
-							} else if (((King) logicBoard[whiteKingPosition.getX()][whiteKingPosition.getY()]).isCheckMated(logicBoard)){
+							} else if (((King) logicBoard[whiteKingPosition.getX()][whiteKingPosition.getY()]).isCheckMated(x,y,logicBoard)){
 								endGame(Team.Black);
 							}
 							
@@ -190,10 +211,18 @@ public class Board extends Application {
 			}
 		}
 		
-		if (logicBoard[selectedPosition.getX()][selectedPosition.getY()].checkMove(newX, newY, logicBoard)) {
-			return true;
+		if (checked) {
+			if (legalMoveWhileInCheck(newX, newY)) {
+				return true;
+			} else {
+				return false;
+			}
 		} else {
-			return false;
+			if (logicBoard[selectedPosition.getX()][selectedPosition.getY()].checkMove(newX, newY, logicBoard)) {
+				return true;
+			} else {
+				return false;
+			}
 		}
 	}
 	
@@ -204,6 +233,19 @@ public class Board extends Application {
 		 * the pieceMoved value in the move() method when they do move).
 		 */
 		selected = false;
+		checked = false;
+		
+		/*
+		 * Sets special pieces "pieceMoved" attribute which will remove their special movement
+		 * abilities
+		 */
+		if (logicBoard[selectedPosition.getX()][selectedPosition.getY()] instanceof Pawn) {
+			((Pawn) logicBoard[selectedPosition.getX()][selectedPosition.getY()]).setPieceMoved();
+		} else if (logicBoard[selectedPosition.getX()][selectedPosition.getY()] instanceof Rook) {
+			((Rook) logicBoard[selectedPosition.getX()][selectedPosition.getY()]).setPieceMoved();
+		} else if (logicBoard[selectedPosition.getX()][selectedPosition.getY()] instanceof King) {
+			((King) logicBoard[selectedPosition.getX()][selectedPosition.getY()]).setPieceMoved();
+		}
 		
 		//swap logically
 		Piece temp = logicBoard[newX][newY];
@@ -228,7 +270,6 @@ public class Board extends Application {
 		((Piece) clickedNode).setPosition(newX,newY);
 		((Piece) newPositionNode).setPosition(selectedPosition.getX(),selectedPosition.getY());
 		
-		//Doesnt actually delete the node but it's as close as I can get without better understanding.
 		if ((clickedNode instanceof King && !(newPositionNode instanceof NullPiece)) && newPositionNode instanceof Rook) {
 			//If castling your king, do not remove the piece
 		} else if (newPositionNode instanceof Piece && !(newPositionNode instanceof NullPiece)) {
@@ -237,6 +278,7 @@ public class Board extends Application {
 			pane.add(logicBoard[selectedPosition.getX()][selectedPosition.getY()],selectedPosition.getX(), selectedPosition.getY());
 			logicBoard[selectedPosition.getX()][selectedPosition.getY()].toBack();
 		}
+		
 		//Alter selection and board square coloring
 		boardSquares[selectedPosition.getX()][selectedPosition.getY()].revertToBase();
 		if (logicBoard[newX][newY] instanceof King) {
@@ -442,6 +484,70 @@ public class Board extends Application {
 		
 	}
 
+	public boolean legalMoveWhileInCheck(int newX, int newY) {
+		boolean result = false;
+
+		//If King is trying to move, test the move for safety
+		if (logicBoard[selectedPosition.getX()][selectedPosition.getY()] instanceof King) {
+			if (((King) logicBoard[selectedPosition.getX()][selectedPosition.getY()]).checkSafeKingPosition(newX,newY,logicBoard)
+					&& logicBoard[selectedPosition.getX()][selectedPosition.getY()].checkMove(newX,newY,logicBoard)) {
+				result = true;
+			}
+		//If some piece other than King is trying to move, check to see if it is moving to a position in the blockings positions vector
+		} else {
+			for (Position i:checkBlockPositions) {
+				if (newX==i.getX() && newY==i.getY()) {
+					result = true;
+					break;
+				}
+			}
+			if (!logicBoard[selectedPosition.getX()][selectedPosition.getY()].checkMove(newX,newY,logicBoard)) {
+				result = false;
+			}
+		}
+		
+		return result;
+	}
+	
+	public Vector<Position> getCheckBlockPositions (int attackerX, int attackerY) {
+		Vector<Position> result = new Vector<Position>();
+		
+		/*
+		 * Piece just moved to new position
+		 * passed its x and y
+		 * 
+		 * if black turn==black check to white king position, if turn==white check to black king position
+		 * check for if (piece instanceof rook, bishop or queen (cant block pawn or knight + cant be king).
+		 */
+		if (turn==Team.White) {
+			if (logicBoard[attackerX][attackerY] instanceof Bishop) {
+				result = King.getPositionsBetweenDiagonal(attackerX, attackerY, blackKingPosition.getX(), blackKingPosition.getY());
+			} else if (logicBoard[attackerX][attackerY] instanceof Rook) {
+				result = King.getPositionsBetweenHorVert(attackerX, attackerY, blackKingPosition.getX(), blackKingPosition.getY());
+			} else if (logicBoard[attackerX][attackerY] instanceof Queen) {
+				if (attackerX==blackKingPosition.getX() || attackerY==blackKingPosition.getY()) {
+					result = King.getPositionsBetweenHorVert(attackerX, attackerY, blackKingPosition.getX(), blackKingPosition.getY());
+				} else {
+					result = King.getPositionsBetweenDiagonal(attackerX, attackerY, blackKingPosition.getX(), blackKingPosition.getY());
+				}
+			}
+		} else {
+			if (logicBoard[attackerX][attackerY] instanceof Bishop) {
+				result = King.getPositionsBetweenDiagonal(attackerX, attackerY, whiteKingPosition.getX(), whiteKingPosition.getY());
+			} else if (logicBoard[attackerX][attackerY] instanceof Rook) {
+				result = King.getPositionsBetweenHorVert(attackerX, attackerY, whiteKingPosition.getX(), whiteKingPosition.getY());
+			} else if (logicBoard[attackerX][attackerY] instanceof Queen) {
+				if (attackerX==whiteKingPosition.getX() || attackerY==whiteKingPosition.getY()) {
+					result = King.getPositionsBetweenHorVert(attackerX, attackerY, whiteKingPosition.getX(), whiteKingPosition.getY());
+				} else {
+					result = King.getPositionsBetweenDiagonal(attackerX, attackerY, whiteKingPosition.getX(), whiteKingPosition.getY());
+				}
+			}
+		}
+		
+		return result;
+	}
+	
 	public void endGame (Team team) {
 		if (team == Team.White) {
 			System.out.println("White team has won!");

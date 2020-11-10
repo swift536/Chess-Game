@@ -1,5 +1,7 @@
 package piece;
 
+import java.util.Vector;
+
 import chessBoard.Position;
 import piece.Piece.PieceType;
 import piece.Piece.Team;
@@ -19,7 +21,7 @@ public class King extends Piece {
 		return false;
 	}
 
-	public boolean isCheckMated(Piece[][] board) {
+	public boolean isCheckMated(int attackerX, int attackerY, Piece[][] board) {
 		/*
 		 * 1)Brute force method is to run through all possible piece movements in reverse from King position.
 		 * 2)Potentially better method is to keep track of available opponent pieces and only check the movements
@@ -64,9 +66,156 @@ public class King extends Piece {
 			}
 		}
 		
+		//check for blocks
+		if (mated==true) {
+			if (blockAttacker(attackerX, attackerY, board)) {
+				mated = false;
+			} else if (takeAttacker(attackerX, attackerY, board)) {
+				mated = false;
+			}
+		}
+		
 		return mated;
 	}
-
+	
+	private boolean blockAttacker (int attackerX, int attackerY, Piece[][] board) {
+		boolean result = false;
+		Vector<Position> blockablePositions = new Vector<Position>();
+		Vector<Piece> pieces = new Vector<Piece>();
+		
+		//Cannot block a knight or pawn, so skip this logic
+		if (!(board[attackerX][attackerY] instanceof Knight || board[attackerX][attackerY] instanceof Pawn)) {
+			
+			int currentX = this.position.getX();
+			int currentY = this.position.getY();
+			
+			for (int i=0;i <8; i++) {
+				for (int j=0; j<8; j++) {
+					if ((board[i][j].getTeam() == this.team) && !(board[i][j] instanceof King)) {
+						pieces.add(board[i][j]);
+					}
+				}
+			}
+			
+			if (board[attackerX][attackerY] instanceof Bishop) {
+				blockablePositions = getPositionsBetweenDiagonal(currentX, currentY, attackerX, attackerY);
+			} else if (board[attackerX][attackerY] instanceof Rook) {
+				blockablePositions = getPositionsBetweenHorVert(currentX, currentY, attackerX, attackerY);
+			} else if (board[attackerX][attackerY] instanceof Queen) {
+				if (currentX==attackerX || currentY==attackerY) {
+					blockablePositions = getPositionsBetweenHorVert(currentX, currentY, attackerX, attackerY);
+				} else {
+					blockablePositions = getPositionsBetweenDiagonal(currentX, currentY, attackerX, attackerY);
+				}
+			}
+		}
+		
+		for (Piece i:pieces) {
+			for (Position j: blockablePositions) {
+				if (i.checkMove(j.getX(), j.getY(), board)) {
+					result = true;
+					break;
+				}
+			}
+		}
+		
+		return result;
+	}
+	
+	public static Vector<Position> getPositionsBetweenDiagonal (int x1, int y1, int x2, int y2) {
+		Vector<Position> result = new Vector<Position>();
+		
+		if (x1 < x2) {
+			if (y1 < y2) {
+				x1++;
+				y1++;
+				while (y1 < y2) {
+					result.add(new Position(x1, y1));
+					x1++;
+					y1++;
+				}
+			} else {
+				x1++;
+				y1--;
+				while (y1 > y2) {
+					result.add(new Position(x1, y1));
+					x1++;
+					y1--;
+				}
+			}
+		} else {
+			if (y1 < y2) {
+				x1--;
+				y1++;
+				while (y1 < y2) {
+					result.add(new Position(x1, y1));
+					x1--;
+					y1++;
+				}
+			} else {
+				x1--;
+				y1--;
+				while (y1 > y2) {
+					result.add(new Position(x1, y1));
+					x1--;
+					y1--;
+				}
+			}
+		}
+		
+		return result;
+	}
+	
+	public static Vector<Position> getPositionsBetweenHorVert (int x1, int y1, int x2, int y2) {
+		Vector<Position> result = new Vector<Position>();
+		
+		if (x1==x2) {
+			int largeY, smallY;
+			if (y1 < y2) {
+				largeY = y2;
+				smallY = y1;
+			} else {
+				largeY = y1;
+				smallY = y2;
+			}
+			for (int i=smallY; i<largeY; i++) {
+				result.add(new Position(x1, i));
+			}
+		} else {
+			int largeX, smallX;
+			if (x1 < x2) {
+				largeX = x2;
+				smallX = x1;
+			} else {
+				largeX = x1;
+				smallX = x2;
+			}
+			for (int i=smallX; i<largeX; i++) {
+				result.add(new Position(i, y1));
+			}
+		}
+		
+		return result;
+	}
+	
+	
+	private boolean takeAttacker (int attackerX, int attackerY, Piece[][] board) {
+		boolean result = false;
+		
+		for (int i=0;i <8; i++) {
+			for (int j=0; j<8; j++) {
+				if (board[i][j].getTeam() == this.team) {
+					if (board[i][j].checkMove(attackerX,attackerY,board)) {
+						result = true;
+						break;
+					}
+				}
+			}
+		}
+		
+		return result;
+	}
+		
 	@Override
 	public boolean checkMove(int newX, int newY, Piece[][] board) {
 		boolean moveable = false;
@@ -78,7 +227,10 @@ public class King extends Piece {
 				moveable = true;
 			}
 		} else if (Math.abs(newX-oldX) <= 1 && Math.abs(newY-oldY) <= 1) {
-			moveable = true;
+			if (checkSafeKingPosition(newX, newY, board)) {
+				moveable = true;
+			}
+			
 		}
 		
 		return moveable;
@@ -92,9 +244,10 @@ public class King extends Piece {
 		return pieceMoved;
 	}
 	
-	private boolean checkSafeKingPosition(int x, int y, Piece[][] board) {
+	public boolean checkSafeKingPosition(int x, int y, Piece[][] board) {
+
 		/*
-		 * Returns true is the space is safe for the king and false if not
+		 * Returns true if the space is safe for the king and false if not
 		 * 
 		 * No need to check pawns specifically because they cross the path of other pieces
 		 * 
@@ -115,12 +268,15 @@ public class King extends Piece {
 		//check Vertical
 		//Up
 		while (newY>=0) {
+			if (board[newX][newY].getTeam() == this.team) {
+				break;
+			}
 			if (board[newX][newY] instanceof Piece && !(board[newX][newY] instanceof NullPiece)
 					&& board[newX][newY].getTeam() != this.team) {
 				
 				if (board[newX][newY] instanceof Rook 
 						|| board[newX][newY] instanceof Queen 
-						|| board[newX][newY] instanceof King) {
+						|| (board[newX][newY] instanceof King && newY==this.position.getY()+1)) {
 					checks[0] = false;
 				}
 				
@@ -131,12 +287,15 @@ public class King extends Piece {
 		
 		//Down
 		while (newY<=7) {
+			if (board[newX][newY].getTeam() == this.team) {
+				break;
+			}
 			if (board[newX][newY] instanceof Piece && !(board[newX][newY] instanceof NullPiece)
 					&& board[newX][newY].getTeam() != this.team) {
 				
 				if (board[newX][newY] instanceof Rook 
 						|| board[newX][newY] instanceof Queen 
-						|| board[newX][newY] instanceof King) {
+						|| (board[newX][newY] instanceof King && newY==this.position.getY()-1)) {
 					checks[1] = false;
 				}
 				
@@ -146,14 +305,17 @@ public class King extends Piece {
 		newY = y;
 		
 		//check horizontal
-		//
+		//right
 		while (newX>=0) {
+			if (board[newX][newY].getTeam() == this.team) {
+				break;
+			}
 			if (board[newX][newY] instanceof Piece && !(board[newX][newY] instanceof NullPiece)
 					&& board[newX][newY].getTeam() != this.team) {
 				
 				if (board[newX][newY] instanceof Rook 
 						|| board[newX][newY] instanceof Queen 
-						|| board[newX][newY] instanceof King) {
+						|| (board[newX][newY] instanceof King && newX==this.position.getX()+1)) {
 					checks[2] = false;
 				}
 				
@@ -162,13 +324,17 @@ public class King extends Piece {
 		}
 		newX = x;
 		
+		//Left
 		while (newX<=7) {
+			if (board[newX][newY].getTeam() == this.team) {
+				break;
+			}
 			if (board[newX][newY] instanceof Piece && !(board[newX][newY] instanceof NullPiece)
 					&& board[newX][newY].getTeam() != this.team) {
 				
 				if (board[newX][newY] instanceof Rook 
 						|| board[newX][newY] instanceof Queen 
-						|| board[newX][newY] instanceof King) {
+						|| (board[newX][newY] instanceof King && newX==this.position.getX()+1)) {
 					checks[3] = false;
 				}
 				
@@ -180,12 +346,15 @@ public class King extends Piece {
 		//check diagonal
 		//Top right
 		while ((newX >= 0 && newX <= 7) && (newY >= 0 && newY <= 7)) {
+			if (board[newX][newY].getTeam() == this.team) {
+				break;
+			}
 			if (board[newX][newY] instanceof Piece && !(board[newX][newY] instanceof NullPiece)
 					&& board[newX][newY].getTeam() != this.team) {
 				
 				if (board[newX][newY] instanceof Bishop 
 						|| board[newX][newY] instanceof Queen 
-						|| board[newX][newY] instanceof King) {
+						|| (board[newX][newY] instanceof King && (newX==this.position.getX()+1) && newY==this.position.getY()-1)) {
 					//moveable = false;
 					checks[4] = false;
 				}
@@ -199,12 +368,15 @@ public class King extends Piece {
 		
 		//Top left
 		while ((newX >= 0 && newX <= 7) && (newY >= 0 && newY <= 7)) {
+			if (board[newX][newY].getTeam() == this.team) {
+				break;
+			}
 			if (board[newX][newY] instanceof Piece && !(board[newX][newY] instanceof NullPiece)
 					&& board[newX][newY].getTeam() != this.team) {
 				
 				if (board[newX][newY] instanceof Bishop 
 						|| board[newX][newY] instanceof Queen 
-						|| board[newX][newY] instanceof King) {
+						|| (board[newX][newY] instanceof King && (newX==this.position.getX()-1) && newY==this.position.getY()-1)) {
 					//moveable = false;
 					checks[5] = false;
 				}
@@ -218,12 +390,15 @@ public class King extends Piece {
 		
 		//Bottom right
 		while ((newX >= 0 && newX <= 7) && (newY >= 0 && newY <= 7)) {
+			if (board[newX][newY].getTeam() == this.team) {
+				break;
+			}
 			if (board[newX][newY] instanceof Piece && !(board[newX][newY] instanceof NullPiece)
 					&& board[newX][newY].getTeam() != this.team) {
 				
 				if (board[newX][newY] instanceof Bishop 
 						|| board[newX][newY] instanceof Queen 
-						|| board[newX][newY] instanceof King) {
+						|| (board[newX][newY] instanceof King && (newX==this.position.getX()+1) && newY==this.position.getY()+1)) {
 					//moveable = false;
 					checks[6] = false;
 				}
@@ -237,12 +412,15 @@ public class King extends Piece {
 		
 		//Bottom left
 		while ((newX >= 0 && newX <= 7) && (newY >= 0 && newY <= 7)) {
+			if (board[newX][newY].getTeam() == this.team) {
+				break;
+			}
 			if (board[newX][newY] instanceof Piece && !(board[newX][newY] instanceof NullPiece)
 					&& board[newX][newY].getTeam() != this.team) {
 				
 				if ((board[newX][newY] instanceof Bishop 
 						|| board[newX][newY] instanceof Queen 
-						|| board[newX][newY] instanceof King)) {
+						|| (board[newX][newY] instanceof King && (newX==this.position.getX()-1) && newY==this.position.getY()+1))) {
 					//moveable = false;
 					checks[7] = false;
 				}
